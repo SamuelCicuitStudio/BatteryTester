@@ -14,7 +14,7 @@ Sure! Here's the updated section with **direct internal Markdown links** (anchor
 | ------------------------------------- | ---------------------------------------------------------------------- |
 | [`DeviceManager`](#-devicemanager)    | Initializes and connects all hardware subsystems                       |
 | [`ChannelManager`](#-channelmanager)  | Manages one battery channel: charger, LED, sensor, capacity, telemetry |
-| [`SwitchManager`](#-switchmanager)    | Handles tap/hold button input to trigger channel-specific actions      |
+| [`SwitchManager`](#switchmanager)    | Handles tap/hold button input to trigger channel-specific actions      |
 | [`GpioManager`](#-gpiomanager)        | Manages GPIO pins and shift register for RGB and load control          |
 | [`bq2589x`](#-bq2589x)                | External driver class for interfacing with the BQ2589x charger IC      |
 | [`config.h`](#️-configh--central-configuration-header) | Central configuration file for pins, charger settings, and debug macros |
