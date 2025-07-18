@@ -40,25 +40,177 @@ Each battery channel supports real-time telemetry, RGB status indication, load-b
 
 ---
 
+Here is the updated `README.md` section for **`ChannelManager`**, rewritten in detail and properly formatted based on your provided header file:
+
+---
+
 ### 🔌 `ChannelManager`
 
-Handles:
-- BQ2589x configuration: voltage, current, OTG, watchdog.
-- RGB LED status using shift register pins.
-- Load resistor control for capacity testing.
-- ADC-based voltage and current reading.
-- Digital status inputs (STAT, INT, PG).
-- MUX channel selection (via TCA9548A).
+The `ChannelManager` class encapsulates all hardware and logic required to operate a **single battery charging channel**. It controls the charger IC, monitors charging status, handles RGB LED indicators, manages load-based capacity estimation, and routes I2C commands via a TCA9548A multiplexer.
 
-#### Key Methods:
-- `startCharging()`, `stopCharging()`
-- `measureCapacity()` — estimates mWh via load pulse.
-- `sendCapacityReport()` — prints real-time status in JSON.
-- `getStatus()` — returns `ChargingStatus` struct.
-- `updateLedFromStatus()` — sets RGB:  
-  - 🔴 Not charging  
-  - 🟢 Charging  
-  - 🔵 Fully charged
+---
+
+#### 🧩 Responsibilities
+
+* **BQ2589x Charger Control**
+
+  * Initializes and configures the charger IC.
+  * Sets charge voltage, current, watchdog, OTG boost.
+  * Starts/stops charging dynamically.
+
+* **I2C MUX Selection**
+
+  * Activates the correct TCA9548A channel using `setMuxActive()`.
+
+* **Voltage & Current Monitoring**
+
+  * Reads analog voltage from ACS781 sensor connected to ADC.
+  * Calculates current draw for capacity estimation.
+
+* **Capacity Estimation**
+
+  * Activates a 2Ω load resistor briefly.
+  * Measures voltage drop to estimate energy in mWh.
+
+* **LED Status Feedback**
+
+  * Controls RGB LED using 74HC595 shift register.
+  * Updates color to reflect current charging status.
+
+* **Charger Status Input Pins**
+
+  * Reads PG (Power Good), STAT (Charging Status), and INT (Interrupt).
+
+---
+
+#### 📦 Constructor
+
+```cpp
+ChannelManager(uint8_t muxChannel,
+               GpioManager* gpio,
+               ShiftPin rPin, ShiftPin gPin, ShiftPin bPin,
+               ShiftPin otgPin, ShiftPin cePin,
+               ShiftPin loadPin, uint8_t voltageAdcPin,
+               uint8_t intPin, uint8_t statPin, uint8_t pgPin);
+```
+
+* `muxChannel`: TCA9548A channel (0–7) for this battery.
+* `gpio`: Pointer to a shared `GpioManager` instance.
+* `ShiftPin` parameters: shift register pin mappings for RGB LED, OTG, CE, and load control.
+* `voltageAdcPin`: ADC input connected to the current sensor.
+* `intPin`, `statPin`, `pgPin`: Digital input pins from the charger.
+
+---
+
+#### 🔧 Initialization
+
+```cpp
+void begin(TwoWire& wire);
+void initCharger();
+```
+
+* `begin()`: Initializes the charger on the given I2C bus.
+* `initCharger()`: Sets default charge voltage, current, watchdog timer, OTG mode, and disables charging initially.
+
+---
+
+#### ⚡ Charger Control
+
+```cpp
+void startCharging();
+void stopCharging();
+bool isCharging();
+void setChargingVoltage(uint16_t voltage_mV);
+void setChargingCurrent(uint16_t current_mA);
+```
+
+* Direct charger control through I2C.
+* Charger enable/disable managed via CE pin and BQ registers.
+
+---
+
+#### 📊 Status Monitoring
+
+```cpp
+ChargingStatus getStatus();
+bool readInt();
+bool readStat();
+bool readPGood();
+```
+
+* `getStatus()`: Returns all runtime measurements:
+
+  * Battery/System/VBUS voltage
+  * Charge current
+  * Die temperature
+  * Charging flags (done/enabled)
+  * Status pins and charger text
+* Other methods give access to charger signal pins (PG, INT, STAT).
+
+---
+
+#### 🧮 Capacity Estimation
+
+```cpp
+float measureCapacity();
+void sendCapacityReport();
+```
+
+* `measureCapacity()`:
+
+  * Briefly activates load resistor.
+  * Measures current delta from sensor before/after.
+  * Computes estimated energy (mWh) using:
+
+    ```
+    P = ΔI² × R
+    E = P × Δt
+    Capacity = E / 3600
+    ```
+* `sendCapacityReport()`:
+
+  * Outputs real-time JSON over serial:
+
+    ```json
+    {
+      "channel": 2,
+      "voltage": 3.92,
+      "capacity_mWh": 15.7,
+      "charging": false
+    }
+    ```
+
+---
+
+#### 🎨 RGB LED Control
+
+```cpp
+void setRgbColor(bool r, bool g, bool b);
+void updateLedFromStatus();
+```
+
+* Controls 3 shift register pins for Red, Green, Blue.
+* `updateLedFromStatus()` sets colors based on current charging state:
+
+  * 🔴 Not charging
+  * 🟢 Charging
+  * 🔵 Fully charged
+
+---
+
+#### ⚙️ Miscellaneous
+
+```cpp
+void setCE(bool enabled);
+void setOTG(bool enabled);
+bq2589x& getBQ();
+uint8_t getMuxAddress() const;
+uint8_t getMuxChannel() const;
+void setMuxActive(TwoWire& wire);
+```
+
+* OTG and CE modes toggled via shift register.
+* Exposes BQ2589x driver reference and mux metadata.
 
 ---
 
