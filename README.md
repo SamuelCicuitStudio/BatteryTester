@@ -17,7 +17,7 @@ Sure! Here's the updated section with **direct internal Markdown links** (anchor
 | [`SwitchManager`](#-switchmanager)    | Handles tap/hold button input to trigger channel-specific actions      |
 | [`GpioManager`](#-gpiomanager)        | Manages GPIO pins and shift register for RGB and load control          |
 | [`bq2589x`](#-bq2589x)                | External driver class for interfacing with the BQ2589x charger IC      |
-| [`config.h`](#️configh--central-configuration-header) | Central configuration file for pins, charger settings, and debug macros |
+| [`config.h`](#️-configh--central-configuration-header) | Central configuration file for pins, charger settings, and debug macros |
 
 ---
 
