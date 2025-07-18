@@ -12,7 +12,7 @@ Each battery channel supports real-time telemetry, RGB status indication, load-b
 | ------------------------------------------------------ | ----------------------------------------------------------------------- |
 | [`DeviceManager`](#-devicemanager)                     | Initializes and connects all hardware subsystems                        |
 | [`ChannelManager`](#-channelmanager)                   | Manages one battery channel: charger, LED, sensor, capacity, telemetry  |
-| [`SwitchManager`](#-switchmanager)                      | Handles tap/hold button input to trigger channel-specific actions       |
+| [`SwitchManager`](#%EF%B8%8F-switchmanager)                      | Handles tap/hold button input to trigger channel-specific actions       |
 | [`GpioManager`](#-gpiomanager)                         | Manages GPIO pins and shift register for RGB and load control           |
 | [`Tca9548aMux`](#-tca9548amux--i2c-multiplexer-manager)                         | Controls I2C multiplexer to route communication to each charger         |
 | [`bq2589x`](#-bq2589x)                                 | External driver class for interfacing with the BQ2589x charger IC       |
