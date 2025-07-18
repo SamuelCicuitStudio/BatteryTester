@@ -313,7 +313,7 @@ This turns the LED red by enabling only the R pin. Changes are staged until `app
 
 ---
 
-### 🖲️ `SwitchManager`
+## 🖲️ `SwitchManager`
 
 - Detects tap or hold interactions on one button.
 - Launches a FreeRTOS task (`SwitchTask()`).
