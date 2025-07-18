@@ -1,10 +1,12 @@
+
 # 🔋 Multi-Channel Smart Battery Management System
 
-This project implements a **4-channel battery charging and monitoring system** using an **ESP32**, **BQ2589x charger ICs**, **ACS781 current sensors**, **TCA9548A I2C multiplexer**, and **74HC595 shift registers**. Each battery channel supports real-time telemetry, RGB status indication, load-based capacity estimation, and user-triggered commands via a shared button.
+This project implements a **4-channel battery charging and monitoring system** using an **ESP32**, **BQ2589x charger ICs**, **ACS781 current sensors**, **TCA9548A I2C multiplexer**, and **74HC595 shift registers**.  
+Each battery channel supports real-time telemetry, RGB status indication, load-based capacity estimation, and user-triggered commands via a shared button.
 
 ---
 
-## 📘 Top-Level Class Overview
+## 📘 Class Overview
 
 | Class            | Responsibility                                                                 |
 |------------------|---------------------------------------------------------------------------------|
@@ -19,11 +21,11 @@ This project implements a **4-channel battery charging and monitoring system** u
 ## ⚙️ System Architecture
 
 - **Microcontroller**: ESP32 (any variant with ≥4 ADCs, I2C, and enough GPIOs)
-- **Charging IC**: 4x BQ2589x (1 per channel)
-- **Voltage/Current Sensor**: 4x ACS781 (connected to ADC)
-- **Shift Register**: 3x 74HC595 (controls RGBs + load switches)
-- **Multiplexer**: TCA9548A I2C Mux (selects each charger's I2C path)
-- **Single Tap Button**: Shared GPIO input for all control modes
+- **Charging ICs**: 4× BQ2589x (1 per channel)
+- **Voltage/Current Sensors**: 4× ACS781 (connected to ADC)
+- **Shift Registers**: 3× 74HC595 (controls RGB LEDs + load switches)
+- **Multiplexer**: 1× TCA9548A I2C Mux (selects each charger’s I2C path)
+- **Button**: Single shared GPIO input for tap/hold control
 
 ---
 
@@ -31,61 +33,74 @@ This project implements a **4-channel battery charging and monitoring system** u
 
 ### 🔧 `DeviceManager`
 
-- Holds and manages 4 `ChannelManager` instances
-- Calls `.begin()` for all subsystems
-- Starts the `SwitchManager`
-- Periodically calls `.sendCapacityReport()` for all channels
+- Manages 4 `ChannelManager` instances.
+- Calls `.begin()` to initialize I2C, GPIO, and all channels.
+- Starts the `SwitchManager` to monitor button inputs.
+- Periodically calls `.sendCapacityReport()` for each channel.
+
+---
 
 ### 🔌 `ChannelManager`
 
-Manages:
-- BQ2589x configuration (voltage, current, OTG, watchdog, etc.)
-- RGB LED color based on charge state
-- Load resistor control (via shift register)
-- ADC-based capacity estimation
-- Digital inputs (STAT, INT, PG)
-- I2C mux slot selection
+Handles:
+- BQ2589x configuration: voltage, current, OTG, watchdog.
+- RGB LED status using shift register pins.
+- Load resistor control for capacity testing.
+- ADC-based voltage and current reading.
+- Digital status inputs (STAT, INT, PG).
+- MUX channel selection (via TCA9548A).
 
-Key Methods:
+#### Key Methods:
 - `startCharging()`, `stopCharging()`
-- `measureCapacity()`
-- `sendCapacityReport()` → JSON via Serial
-- `getStatus()` → returns `ChargingStatus` struct
-- `updateLedFromStatus()` → RGB = 🔴 not charging, 🟢 charging, 🔵 done
+- `measureCapacity()` — estimates mWh via load pulse.
+- `sendCapacityReport()` — prints real-time status in JSON.
+- `getStatus()` — returns `ChargingStatus` struct.
+- `updateLedFromStatus()` — sets RGB:  
+  - 🔴 Not charging  
+  - 🟢 Charging  
+  - 🔵 Fully charged
+
+---
 
 ### 🧲 `GpioManager`
 
-- Configures ADC and GPIO pins
-- Manages `shiftState` (24-bit register state)
-- Controls OE, MR, SER, SCK, RCK
-- Provides `setShiftPin()`, `applyShiftState()`, `resetShiftRegisters()`
+- Initializes ADC, GPIO, and shift register pins.
+- Maintains a 24-bit `shiftState`.
+- Provides:
+  - `setShiftPin()`
+  - `applyShiftState()`
+  - `resetShiftRegisters()`
+
+---
 
 ### 🖲️ `SwitchManager`
 
-- Detects tap or hold interactions on one button
-- Supports up to **4 tap types**:
-  | Tap Count | Action                         |
-  |-----------|--------------------------------|
-  | 1 tap     | Measure capacity on channel 1  |
-  | 2 taps    | Measure capacity on channel 2  |
-  | 3 taps    | Measure capacity on channel 3  |
-  | 4 taps    | Measure capacity on channel 4  |
-- Launches `SwitchTask()` on a dedicated FreeRTOS core
+- Detects tap or hold interactions on one button.
+- Launches a FreeRTOS task (`SwitchTask()`).
+- Maps 1 to 4 tap counts to trigger capacity tests on the corresponding channel:
+
+| Tap Count | Action                         |
+|-----------|--------------------------------|
+| 1 tap     | Measure capacity on channel 1  |
+| 2 taps    | Measure capacity on channel 2  |
+| 3 taps    | Measure capacity on channel 3  |
+| 4 taps    | Measure capacity on channel 4  |
+
+---
 
 ### 📦 `bq2589x`
 
-- External driver
-- Provides functions like:
-  - `begin()`
-  - `set_charge_voltage()`, `set_charge_current()`
-  - `enable_charger()`, `disable_charger()`
-  - `adc_read_*()` functions for battery, system, VBUS voltage, temperature, current
+External driver class (not detailed here) that supports:
+- `begin()`
+- `set_charge_voltage()`, `set_charge_current()`
+- `enable_charger()`, `disable_charger()`
+- `adc_read_battery_volt()`, `adc_read_sys_volt()`, etc.
 
 ---
 
 ## 📡 Real-Time JSON Output
 
-`ChannelManager::sendCapacityReport()` sends this over `Serial`:
+Example output from `sendCapacityReport()`:
 
 ```json
 {
@@ -94,70 +109,90 @@ Key Methods:
   "capacity_mWh": 27.34,
   "charging": true
 }
-📁 File Tree
-bash
-Copy
-Edit
+````
+
+---
+
+## 📁 File Structure
+
+```
 /src
-├── DeviceManager.h/.cpp      → Top-level initializer
-├── ChannelManager.h/.cpp     → Controls one channel
-├── SwitchManager.h/.cpp      → Button handler (tap detection)
-├── GpioManager.h/.cpp        → Shift register + GPIO abstraction
+├── DeviceManager.h/.cpp      → Top-level manager and initializer
+├── ChannelManager.h/.cpp     → Controls a single battery channel
+├── SwitchManager.h/.cpp      → Tap/hold detection
+├── GpioManager.h/.cpp        → GPIO and shift register abstraction
 ├── bq2589x.h/.cpp            → BQ2589x chip driver
 ├── main.cpp                  → Arduino-style entry point
-🔋 Capacity Estimation
-Activates the load resistor for a short pulse
+```
 
-Measures current delta using ACS781
+---
 
-Calculates energy from ΔI² * R * Δt
+## 🔋 Capacity Estimation Logic
 
-Reports result in mWh
+1. Activate load resistor briefly via shift register.
+2. Measure voltage before and after using ACS781.
+3. Calculate current and estimate energy:
 
-🛠️ Setup
-📦 Hardware Requirements
-ESP32
+   ```
+   ΔI = I_after - I_before
+   Power = ΔI² × R
+   Energy = Power × time (e.g. 100ms)
+   Capacity ≈ mWh = energy (mWs) / 3600
+   ```
 
-4x BQ2589x
+---
 
-4x ACS781
+## 🛠️ Setup Instructions
 
-3x 74HC595
+### 📦 Hardware Required
 
-1x TCA9548A
+* 1× ESP32
+* 4× BQ2589x
+* 4× ACS781LLRTR-100B-T
+* 3× 74HC595
+* 1× TCA9548A
+* 4× 2Ω, 12W power resistors
+* 1× Push Button
 
-4x 2Ω, 12W resistive loads
+### 🧪 Enable Debugging
 
-1x Push button
+To see logs over serial:
 
-🧪 Optional Diagnostic Output
-Enable DEBUG_PRINTLN() via Serial.begin(SERIAL_BAUD_RATE) in main.cpp.
+```cpp
+Serial.begin(SERIAL_BAUD_RATE);
+```
 
-🔁 Runtime Behavior
-System boots and initializes I2C, GPIOs, channels
+---
 
-Each channel is assigned a MUX slot (0–3)
+## 🔁 Runtime Behavior
 
-LED color reflects charge state
+* System initializes I2C, GPIO, and channels.
+* Each channel is assigned a MUX slot (0–3).
+* LEDs reflect charger state (red/green/blue).
+* User taps the button:
 
-User taps the button:
+  * Tap 1–4 times to measure capacity of that channel.
+* `sendCapacityReport()` is called periodically in the loop.
 
-1–4 taps → triggers measureCapacity() on a selected channel
+---
 
-sendCapacityReport() is called periodically in the main loop
+## 🧠 Future Extensions
 
-🧠 Future Extensions
-BLE/Wi-Fi telemetry
+* BLE or Wi-Fi telemetry
+* Web dashboard for monitoring
+* SD card data logging
+* OTA firmware updates
 
-Web-based UI
+---
 
-SD card logging
+## 👤 Author
 
-Over-the-air updates
-
-👤 Author
-Tshibangu Samuel
-🎯 Embedded Systems Engineer
-📧 tshibsamuel47@gmail.com
+**Tshibangu Samuel**
+🎯 Freelance Embedded Systems Engineer
+📧 [tshibsamuel47@gmail.com](mailto:tshibsamuel47@gmail.com)
 📱 +216 54 429 793
-🌍 Freelancer Profile
+🌍 [Freelancer Profile](https://www.freelancer.com/u/tshibsamuel477)
+
+---
+
+```
