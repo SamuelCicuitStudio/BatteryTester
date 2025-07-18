@@ -8,16 +8,16 @@ Each battery channel supports real-time telemetry, RGB status indication, load-b
 Sure! Here's the updated section with **direct internal Markdown links** (anchors) to jump to each class explanation further down in the README:
 
 ---
-
 ## 📘 Class Overview
 
-| Class                                | Responsibility                                                         |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| [`DeviceManager`](#-devicemanager)   | Initializes and connects all hardware subsystems                       |
-| [`ChannelManager`](#-channelmanager) | Manages one battery channel: charger, LED, sensor, capacity, telemetry |
-| [`SwitchManager`](#-switchmanager)   | Handles tap/hold button input to trigger channel-specific actions      |
-| [`GpioManager`](#-gpiomanager)       | Manages GPIO pins and shift register for RGB and load control          |
-| [`bq2589x`](#-bq2589x)               | External driver class for interfacing with the BQ2589x charger IC      |
+| Class                                 | Responsibility                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| [`DeviceManager`](#-devicemanager)    | Initializes and connects all hardware subsystems                       |
+| [`ChannelManager`](#-channelmanager)  | Manages one battery channel: charger, LED, sensor, capacity, telemetry |
+| [`SwitchManager`](#-switchmanager)    | Handles tap/hold button input to trigger channel-specific actions      |
+| [`GpioManager`](#-gpiomanager)        | Manages GPIO pins and shift register for RGB and load control          |
+| [`bq2589x`](#-bq2589x)                | External driver class for interfacing with the BQ2589x charger IC      |
+| [`config.h`](#️-configh---central-configuration-header) | Central configuration file for pins, charger settings, and debug macros |
 
 ---
 
@@ -325,6 +325,194 @@ This turns the LED red by enabling only the R pin. Changes are staged until `app
 | 2 taps    | Measure capacity on channel 2  |
 | 3 taps    | Measure capacity on channel 3  |
 | 4 taps    | Measure capacity on channel 4  |
+
+---
+
+## ⚙️ `config.h` – Central Configuration Header
+
+This file acts as the **master control panel** for system settings, pin mappings, charger parameters, and debug behavior. It promotes maintainability and simplifies hardware configuration across the firmware.
+
+---
+
+### 🔍 Debugging Macros
+
+```cpp
+#define DEBUGMODE true
+#define ENABLE_SERIAL_DEBUG
+```
+
+* `DEBUGMODE`: Enables or disables all debug prints globally.
+* `ENABLE_SERIAL_DEBUG`: Activates `Serial.print` macros.
+* Includes:
+
+  * `DEBUG_PRINT(x)`
+  * `DEBUG_PRINTLN(x)`
+  * `DEBUG_PRINTF(...)`
+
+---
+
+### 🖧 Serial Configuration
+
+```cpp
+#define SERIAL_BAUD_RATE 921600
+```
+
+* Configures high-speed debug and telemetry output.
+
+---
+
+### 📡 Analog Input Pins (Current Sensor ADC)
+
+```cpp
+#define VOUTCRR1_PIN 1
+#define VOUTCRR2_PIN 2
+#define VOUTCRR3_PIN 6
+#define VOUTCRR4_PIN 7
+```
+
+* Reads analog voltage output from ACS781 current sensors.
+
+---
+
+### 🔋 Discharge Load Parameters
+
+```cpp
+#define LOAD_RESISTOR_OHMS    2.0f
+#define LOAD_RESISTOR_POWER_W 12.0f
+```
+
+* Defines value and power limit for each channel’s test resistor.
+
+---
+
+### ⚡️ Current Sensor Calibration (ACS781)
+
+```cpp
+#define CURRENT_SENSOR_SENSITIVITY   0.0132f
+#define CURRENT_SENSOR_ZERO_VOLTAGE 1.65f
+#define ADC_REF_VOLTAGE              3.3f
+#define ADC_RESOLUTION               4096.0f
+```
+
+* Used for converting raw ADC values into amperes using sensor transfer function.
+
+---
+
+### ⏹️ Shift Register Control Pins (74HC595)
+
+```cpp
+#define SHIFT_MR_PIN  15
+#define SHIFT_SCK_PIN 16
+#define SHIFT_RCK_PIN 17
+#define SHIFT_SER_PIN 18
+#define SHIFT_OE_PIN  38
+```
+
+* Controls latch, clock, and output for the 3 daisy-chained shift registers.
+
+---
+
+### 🔄 Shift Register Output Mapping
+
+```cpp
+enum ShiftPin {
+  SHIFT_R1, SHIFT_G1, SHIFT_B1,  // RGB Channel 1
+  SHIFT_CE1, SHIFT_OTG1,         // Control Channel 1
+  SHIFT_LD01,                    // Load Channel 1
+  ...
+};
+```
+
+* Logical mapping of shift register outputs for:
+
+  * RGB LED control (`SHIFT_Rx`, `Gx`, `Bx`)
+  * Charger control (`SHIFT_CEx`, `OTGx`)
+  * Load activation (`SHIFT_LDx`)
+
+---
+
+### 📊 `ChargingStatus` Struct
+
+```cpp
+struct ChargingStatus {
+  float batteryVoltage;
+  float chargeCurrent;
+  ...
+};
+```
+
+* Returned by `ChannelManager::getStatus()`
+* Includes:
+
+  * Battery and system voltage
+  * Charge current and temp
+  * PG, STAT, INT pin states
+  * Charging status text
+
+---
+
+### 📶 Charger Interrupt & Status Pins
+
+```cpp
+#define INT1_PIN  47
+#define STAT1_PIN 48
+#define PG1_PIN   45
+...
+#define INT4_PIN  8
+#define STAT4_PIN 9
+#define PG4_PIN   3
+```
+
+* Dedicated digital inputs per BQ2589x charger for monitoring fault and charging states.
+
+---
+
+### ⚙️ Default Charging Parameters
+
+```cpp
+#define BQ2589X_I2C_ADDR           0x6A
+#define DEFAULT_CHARGE_VOLTAGE_MV 4200
+#define DEFAULT_CHARGE_CURRENT_MA 1500
+#define DEFAULT_BOOST_VOLTAGE_MV  5000
+#define DEFAULT_BOOST_CURRENT_MA  1000
+```
+
+* Applied on `ChannelManager::initCharger()` if no override is set.
+
+---
+
+### 🧭 I2C Bus Configuration
+
+```cpp
+#define I2C_SDA_PIN 4
+#define I2C_SCL_PIN 5
+```
+
+* Used by both the multiplexer and all BQ2589x chargers.
+
+---
+
+### 🔀 TCA9548A I2C Multiplexer
+
+```cpp
+#define TCA9548A_ADDR 0x70
+#define TCA_RESET_PIN 42
+#define TCA_A0_PIN    41
+#define TCA_A1_PIN    40
+#define TCA_A2_PIN    39
+```
+
+* Allows ESP32 to switch between 4 independent I2C charger ICs.
+
+---
+
+### 👆 User Button Input
+
+```cpp
+#define USR_SWITCH_PIN 0
+```
+
+* Shared tap/hold button read by `SwitchManager` to initiate channel actions.
 
 ---
 
