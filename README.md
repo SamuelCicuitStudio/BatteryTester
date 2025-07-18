@@ -5,16 +5,19 @@ This project implements a **4-channel battery charging and monitoring system** u
 Each battery channel supports real-time telemetry, RGB status indication, load-based capacity estimation, and user-triggered commands via a shared button.
 
 ---
+Sure! Here's the updated section with **direct internal Markdown links** (anchors) to jump to each class explanation further down in the README:
+
+---
 
 ## 📘 Class Overview
 
-| Class            | Responsibility                                                                 |
-|------------------|---------------------------------------------------------------------------------|
-| `DeviceManager`  | Initializes and connects all hardware subsystems                                |
-| `ChannelManager` | Manages one battery channel: charger, LED, sensor, capacity, telemetry          |
-| `SwitchManager`  | Handles tap/hold button input to trigger channel-specific actions               |
-| `GpioManager`    | Manages GPIO pins and shift register for RGB and load control                   |
-| `bq2589x`        | External driver class for interfacing with the BQ2589x charger IC               |
+| Class                                | Responsibility                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| [`DeviceManager`](#-devicemanager)   | Initializes and connects all hardware subsystems                       |
+| [`ChannelManager`](#-channelmanager) | Manages one battery channel: charger, LED, sensor, capacity, telemetry |
+| [`SwitchManager`](#-switchmanager)   | Handles tap/hold button input to trigger channel-specific actions      |
+| [`GpioManager`](#-gpiomanager)       | Manages GPIO pins and shift register for RGB and load control          |
+| [`bq2589x`](#-bq2589x)               | External driver class for interfacing with the BQ2589x charger IC      |
 
 ---
 
@@ -216,12 +219,97 @@ void setMuxActive(TwoWire& wire);
 
 ### 🧲 `GpioManager`
 
-- Initializes ADC, GPIO, and shift register pins.
-- Maintains a 24-bit `shiftState`.
-- Provides:
-  - `setShiftPin()`
-  - `applyShiftState()`
-  - `resetShiftRegisters()`
+The `GpioManager` class abstracts all GPIO configuration and **shift register control** for the system. It is responsible for initializing ADC pins, configuring the 74HC595 control lines, and maintaining a 24-bit internal state representing all output bits (RGB LEDs, CE, OTG, load control).
+
+---
+
+#### 🧩 Responsibilities
+
+* Sets up GPIOs for ADC input (connected to current sensors).
+* Configures and manages 74HC595 shift register control pins:
+
+  * `SER`, `SCK`, `RCK`, `MR`, `OE`
+* Maintains a **24-bit shift state** representing outputs across 3 chained shift registers.
+* Offers pin-level control over all connected outputs using `ShiftPin` IDs (0–23).
+* Handles low-level shifting and latching of bits to register chain.
+
+---
+
+#### 🛠️ Initialization
+
+```cpp
+void begin();
+```
+
+* Configures:
+
+  * `VOUTCRR1_PIN` to `VOUTCRR4_PIN` as ADC inputs
+  * Shift control pins as OUTPUT:
+
+    * `SHIFT_SER_PIN`, `SHIFT_SCK_PIN`, `SHIFT_RCK_PIN`, `SHIFT_OE_PIN`, `SHIFT_MR_PIN`
+* Enables output (`OE = LOW`) and disables master reset (`MR = HIGH`)
+* Clears the register contents to all LOW using `resetShiftRegisters()` + `shiftOutState()`
+
+---
+
+#### 💡 Shift Register State Management
+
+```cpp
+void setShiftPin(ShiftPin pin, bool level);
+void applyShiftState();
+```
+
+* `setShiftPin(pin, level)`:
+
+  * Modifies one virtual output bit in memory
+  * Does not immediately update hardware
+* `applyShiftState()`:
+
+  * Pushes all 24 bits from memory to the 74HC595 outputs
+
+#### 🔄 Reset & Output Control
+
+```cpp
+void resetShiftRegisters();
+void enableShiftRegisterOutput(bool enable);
+```
+
+* `resetShiftRegisters()`:
+
+  * Briefly pulls `MR` LOW, clearing all bits
+* `enableShiftRegisterOutput(enable)`:
+
+  * Controls `OE` pin to enable/disable physical output
+
+---
+
+#### 🔁 Bit Shifting (Internal)
+
+```cpp
+void shiftOutState();
+```
+
+* Sends all 24 bits from `shiftState` to the shift register
+* Outputs MSB first (bit 23 to 0)
+* Uses standard 595 sequence:
+
+  * `SER` (data) + `SCK` (clock) for each bit
+  * Final `RCK` pulse to latch into output
+
+---
+
+#### 🧠 Example Use
+
+To change the color of an RGB LED:
+
+```cpp
+gpioManager.setShiftPin(SHIFT_R1, true);
+gpioManager.setShiftPin(SHIFT_G1, false);
+gpioManager.setShiftPin(SHIFT_B1, false);
+gpioManager.applyShiftState();
+```
+
+This turns the LED red by enabling only the R pin. Changes are staged until `applyShiftState()` is called.
 
 ---
 
