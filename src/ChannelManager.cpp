@@ -15,6 +15,7 @@
  * - Sets the RGB LED color to red (🔴), indicating the charger is initially disabled.
  *
  * @param muxChannel The channel number (0–7) on the TCA9548A I2C multiplexer to activate for this device.
+ * @param mux Reference to the shared Tca9548aMux used to switch active I2C channels.
  * @param gpio Pointer to the shared GpioManager used for shift register control.
  * @param rPin Shift register pin controlling the red LED for this channel.
  * @param gPin Shift register pin controlling the green LED for this channel.
@@ -28,12 +29,14 @@
  * @param pgPin GPIO pin connected to the BQ2589X PG (Power Good) output.
  */
 ChannelManager::ChannelManager(uint8_t muxChannel,
+                               Tca9548aMux* mux,
                                GpioManager* gpio,
                                ShiftPin rPin, ShiftPin gPin, ShiftPin bPin,
                                ShiftPin otgPin, ShiftPin cePin,
                                ShiftPin loadPin, uint8_t voltageAdcPin,
                                uint8_t intPin, uint8_t statPin, uint8_t pgPin)
-    : gpioManager(gpio),
+    : mux(mux), muxChannel(muxChannel),
+      gpioManager(gpio),
       rPin(rPin), gPin(gPin), bPin(bPin),
       cePin(cePin), otgPin(otgPin),
       loadPin(loadPin), voltageAdcPin(voltageAdcPin),
@@ -43,11 +46,6 @@ ChannelManager::ChannelManager(uint8_t muxChannel,
     DEBUG_PRINTF("🔌 Initializing ChannelManager for channel %d\n", muxChannel);
     DEBUG_PRINTLN("-----------------------------------------------------------");
 
-    tcaAddress = TCA9548A_ADDR;
-    this->muxChannel = muxChannel;
-    muxChannelBit = (1 << (muxChannel & 0x07));
-    DEBUG_PRINTF("I2C Multiplexer Address: 0x%02X | Channel Bit: 0x%02X\n", tcaAddress, muxChannelBit);
-
     // Display pin configuration
     DEBUG_PRINTLN("→ Shift register output pin mapping:");
     DEBUG_PRINTF("   - RGB Pins: R=%d, G=%d, B=%d\n", rPin, gPin, bPin);
@@ -55,11 +53,11 @@ ChannelManager::ChannelManager(uint8_t muxChannel,
     DEBUG_PRINTF("→ Voltage ADC Pin: GPIO %d\n", voltageAdcPin);
     DEBUG_PRINTF("→ Status Pins: INT=%d | STAT=%d | PG=%d\n", intPin, statPin, pgPin);
 
-    // Disable all load pins globally on startup (HIGH = inactive)
-    gpioManager->setShiftPin(SHIFT_LD01, HIGH);
-    gpioManager->setShiftPin(SHIFT_LD02, HIGH);
-    gpioManager->setShiftPin(SHIFT_LD03, HIGH);
-    gpioManager->setShiftPin(SHIFT_LD04, HIGH);
+    // Disable all load pins globally on startup (LOW = inactive)
+    gpioManager->setShiftPin(SHIFT_LD01, LOW);
+    gpioManager->setShiftPin(SHIFT_LD02, LOW);
+    gpioManager->setShiftPin(SHIFT_LD03, LOW);
+    gpioManager->setShiftPin(SHIFT_LD04, LOW);
     gpioManager->applyShiftState();
     DEBUG_PRINTLN("✓ All LOAD control pins set to HIGH (disabled)");
 
@@ -67,6 +65,8 @@ ChannelManager::ChannelManager(uint8_t muxChannel,
     setRgbColor(true, false, false);
     DEBUG_PRINTLN("✓ RGB LED set to RED (charger OFF)");
 }
+
+
 
 
 /**
@@ -80,37 +80,22 @@ ChannelManager::ChannelManager(uint8_t muxChannel,
  *
  * @param wire Reference to the shared TwoWire (I2C) bus used for communication.
  */
-void ChannelManager::begin(TwoWire& wire) {
-    DEBUG_PRINTF("🔁 Initializing Channel %d I2C interface...\n", muxChannel);
+void ChannelManager::begin() {
+    DEBUG_PRINTF("🔁 Initializing Channel %d via TCA9548A multiplexer...\n", muxChannel);
 
-    _wire = &wire;
+    // Activate the channel using the TCA9548A multiplexer
+    if (!mux->selectChannel(muxChannel)) {
+        DEBUG_PRINTF("❌ Failed to select mux channel %d\n", muxChannel);
+        return;
+    }
 
-    // Activate the channel on the TCA9548A multiplexer
-    setMuxActive(*_wire);
-    DEBUG_PRINTF("✓ Mux channel 0x%02X activated on TCA9548A (Addr: 0x%02X)\n", muxChannelBit, tcaAddress);
+    DEBUG_PRINTF("✓ Mux channel %d activated via TCA9548A (Addr: 0x%02X)\n", muxChannel, TCA9548A_ADDR);
 
-    // Initialize BQ2589x charger over I2C
-    bq.begin(_wire, BQ2589X_I2C_ADDR);
+    // Initialize BQ2589x charger over the currently selected I2C channel
+    bq.begin(mux->_wire, BQ2589X_I2C_ADDR);  // Access _wire pointer from TCA if exposed publicly
     DEBUG_PRINTLN("✓ BQ2589x charger initialized via I2C.");
 }
 
-/**
- * @brief Activates the I2C multiplexer (TCA9548A) channel assigned to this charging channel.
- *
- * Sends a command to the TCA9548A to enable only the specific mux channel associated
- * with this `ChannelManager` instance. This ensures that I2C communication with the
- * BQ2589X charger chip is routed correctly.
- *
- * This function is called internally before any I2C transaction to ensure the correct
- * device is selected via the TCA9548A.
- *
- * @param wire Reference to the TwoWire (I2C) bus used to communicate with the multiplexer.
- */
-void ChannelManager::setMuxActive(TwoWire& wire) {
-    wire.beginTransmission(tcaAddress);
-    wire.write(muxChannelBit);
-    wire.endTransmission();
-}
 
 /**
  * @brief Returns a reference to the internal BQ2589X charger driver instance.
@@ -132,8 +117,9 @@ bq2589x& ChannelManager::getBQ() {
  * @return 8-bit I2C address of the TCA9548A multiplexer.
  */
 uint8_t ChannelManager::getMuxAddress() const {
-    return tcaAddress;
+    return mux ? mux->getAddress() : 0xFF;  // 0xFF as fallback if null
 }
+
 /**
  * @brief Returns the bitmask representing the active I2C mux channel.
  *
@@ -143,7 +129,7 @@ uint8_t ChannelManager::getMuxAddress() const {
  * @return 8-bit value representing the mux channel bitmask.
  */
 uint8_t ChannelManager::getMuxChannel() const {
-    return muxChannelBit;
+    return muxChannel;
 }
 
 /**
@@ -254,28 +240,33 @@ void ChannelManager::initCharger() {
     DEBUG_PRINTF("🔌 Initializing Charger on Channel %d\n", muxChannel);
 
     // Select the appropriate I2C multiplexer channel for this charger
-    setMuxActive(*_wire);
-    // Initialize BQ2589x charger driver on the I2C bus
-    bq.begin(_wire, BQ2589X_I2C_ADDR);
-    // Disable the watchdog timer to avoid unintended resets
-    bq.disable_watchdog_timer();
-    // Start ADC in manual mode (not continuous)
-    bq.adc_start(false);
-    // Ensure charger is disabled on startup
-    bq.disable_charger();
-    // Set default charge parameters
-    bq.set_charge_voltage(DEFAULT_CHARGE_VOLTAGE_MV);  // e.g. 4200 mV
-    bq.set_charge_current(DEFAULT_CHARGE_CURRENT_MA);  // e.g. 1500 mA
-    bq.set_otg_voltage(DEFAULT_BOOST_VOLTAGE_MV);      // e.g. 5000 mV
-    bq.set_otg_current(DEFAULT_BOOST_CURRENT_MA);      // e.g. 1000 mA
+    if (!mux->selectChannel(muxChannel)) {
+        DEBUG_PRINTF("❌ Failed to select mux channel %d\n", muxChannel);
+        return;
+    }
 
-    // Ensure OTG and charging are disabled by default
+    // Initialize BQ2589x charger driver on the I2C bus
+    bq.begin(mux->_wire, BQ2589X_I2C_ADDR);
+
+    // Configure charger with default behavior
+    bq.disable_watchdog_timer();                        // Prevent unintentional resets
+    bq.adc_start(false);                                // Start ADC in manual mode
+    bq.disable_charger();                               // Disable charging initially
+    bq.set_charge_voltage(DEFAULT_CHARGE_VOLTAGE_MV);   // Default: 4200 mV
+    bq.set_charge_current(DEFAULT_CHARGE_CURRENT_MA);   // Default: 1500 mA
+    bq.set_otg_voltage(DEFAULT_BOOST_VOLTAGE_MV);       // Default: 5000 mV
+    bq.set_otg_current(DEFAULT_BOOST_CURRENT_MA);       // Default: 1000 mA
+
+    // Ensure CE and OTG outputs are disabled
     setCE(false);
     setOTG(false);
-    // Update the RGB LED to reflect the current charger state
+
+    // Update LED color to reflect current charger status
     updateLedFromStatus();
+
     DEBUG_PRINTLN("✅ Charger Initialization Complete");
 }
+
 
 
 /**
@@ -289,9 +280,13 @@ void ChannelManager::initCharger() {
  * @note This value should be within the supported range of the BQ2589x IC.
  */
 void ChannelManager::setChargingVoltage(uint16_t voltage_mV) {
-    setMuxActive(*_wire);
+    if (!mux->selectChannel(muxChannel)) {
+        DEBUG_PRINTF("❌ Failed to select mux channel %d\n", muxChannel);
+        return;
+    }
     bq.set_charge_voltage(voltage_mV);
 }
+
 
 /**
  * @brief Sets the charging current for the BQ2589x charger.
@@ -305,72 +300,92 @@ void ChannelManager::setChargingVoltage(uint16_t voltage_mV) {
  * the limits of the BQ2589x IC.
  */
 void ChannelManager::setChargingCurrent(uint16_t current_mA) {
-    setMuxActive(*_wire);
+    if (!mux->selectChannel(muxChannel)) {
+        DEBUG_PRINTF("❌ Failed to select mux channel %d\n", muxChannel);
+        return;
+    }
     bq.set_charge_current(current_mA);
 }
+
 /**
  * @brief Measures an approximate battery capacity value in mWh.
  *
- * This function estimates the battery capacity by applying a controlled 
- * load (2Ω resistor) and measuring the current difference before and after 
- * enabling the load using an analog current sensor.
+ * This function estimates the battery capacity by briefly activating a discharge load
+ * and observing the voltage and current difference. Battery voltage is measured using 
+ * the BQ2589x ADC over I²C, while current is derived from an analog current sensor.
  *
  * Steps:
- * - Activates the corresponding I2C mux channel.
- * - Reads the baseline current without load.
- * - Applies the load by pulling the shift-controlled load pin LOW.
- * - Measures the increased current with the load active.
- * - Calculates the power dissipated using ΔI and known resistance.
- * - Approximates energy over a short duration (~100 ms) and converts 
- *   it to milliWatt-hours (mWh).
+ * - Selects the correct TCA9548A multiplexer channel for this battery.
+ * - Enables a known load (e.g., 2Ω resistor) via shift register output.
+ * - Measures battery voltage before and after load activation using the BQ2589x ADC.
+ * - Measures current before and after using analogRead on a current sensor output.
+ * - Calculates ΔI (current delta) and computes instantaneous discharge power.
+ * - Approximates energy released during ~100ms discharge and converts it to mWh.
  *
- * @return Estimated capacity in mWh. This is a relative, instantaneous 
- *         estimate useful for diagnostics or battery health checks.
+ * @return Estimated discharged energy in milliWatt-hours (mWh), useful for tracking
+ *         battery response and degradation over time.
  *
- * @note The precision depends on load resistor value, sensor linearity,
- *       ADC resolution, and system noise.
+ * @note This is a rapid, relative measurement. Accuracy depends on:
+ *       - Load resistor value and tolerance
+ *       - Analog current sensor linearity and offset
+ *       - BQ2589x voltage ADC precision
+ *       - Timing accuracy and electrical noise
  */
 float ChannelManager::measureCapacity() {
-    // Select the appropriate I2C mux channel for this channel
-    setMuxActive(*_wire);
+    // === Step 0: Select correct TCA9548A channel
+    if (!mux->selectChannel(muxChannel)) {
+        DEBUG_PRINTF("❌ Failed to select mux channel %d\n", muxChannel);
+        return 0.0f;
+    }
 
-    // === Step 1: Activate the load (pull current from battery)
-    gpioManager->setShiftPin(loadPin, HIGH);  // Enable load resistor (e.g., 2Ω)
+    // === Step 1: Activate load (pull current from battery)
+    gpioManager->setShiftPin(loadPin, HIGH);  // Enable 2Ω load
     gpioManager->applyShiftState();
-    delay(50);  // Allow current to stabilize
+    delay(50);  // Let current stabilize
 
-    // === Step 2: Measure initial voltage across current sensor
+    // === Step 2: Read voltage before load removal from BQ chip (mV)
+    int voltageBefore_mV = bq.adc_read_battery_volt();
+    float voltageBefore = voltageBefore_mV / 1000.0f;
+
+    // === Step 3: Read current from analog sensor
     uint16_t adcRawBefore = analogRead(voltageAdcPin);
-    float voltageBefore = (adcRawBefore * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
-    float currentBefore = (voltageBefore - CURRENT_SENSOR_ZERO_VOLTAGE) / CURRENT_SENSOR_SENSITIVITY;
+    float sensorVoltageBefore = (adcRawBefore * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
+    float currentBefore = (sensorVoltageBefore - CURRENT_SENSOR_ZERO_VOLTAGE) / CURRENT_SENSOR_SENSITIVITY;
 
-    // === Step 3: Disable load and allow signal to settle
-    gpioManager->setShiftPin(loadPin, LOW);  // Disable load
+    // === Step 4: Disable load
+    gpioManager->setShiftPin(loadPin, LOW);
     gpioManager->applyShiftState();
-    delay(100);  // Wait for sensor to stabilize
+    delay(100);
 
-    // === Step 4: Measure voltage again after load is removed
+    // === Step 5: Read voltage again after load is removed
+    int voltageAfter_mV = bq.adc_read_battery_volt();
+    float voltageAfter = voltageAfter_mV / 1000.0f;
+
+    // === Step 6: Read current again after load is off
     uint16_t adcRawAfter = analogRead(voltageAdcPin);
-    float voltageAfter = (adcRawAfter * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
-    float currentAfter = (voltageAfter - CURRENT_SENSOR_ZERO_VOLTAGE) / CURRENT_SENSOR_SENSITIVITY;
+    float sensorVoltageAfter = (adcRawAfter * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
+    float currentAfter = (sensorVoltageAfter - CURRENT_SENSOR_ZERO_VOLTAGE) / CURRENT_SENSOR_SENSITIVITY;
 
-    // === Step 5: Restore load pin to HIGH (default OFF state)
+    // === Step 7: Re-disable load just in case
     gpioManager->setShiftPin(loadPin, HIGH);
     gpioManager->applyShiftState();
 
-    // === Step 6: Estimate delta current and calculate discharge power
-    float deltaCurrent = currentAfter - currentBefore;
+    // === Step 8: Compute delta current and power
+    float deltaCurrent = currentBefore - currentAfter;
     float power = deltaCurrent * deltaCurrent * LOAD_RESISTOR_OHMS;  // P = I²R
-    float energy_mWs = power * 100.0f;  // Multiply by time (100ms) in milliseconds
+    float energy_mWs = power * 100.0f;  // 100ms discharge window
 
-    // === Step 7: Convert mWs to mWh (1 Wh = 3600 Ws)
+    // === Step 9: Convert to mWh
     float capacity_mWh = energy_mWs / 3600.0f;
 
-    DEBUG_PRINTF("⚡ Channel %d: CurrentBefore=%.2fmA, CurrentAfter=%.2fmA, ΔI=%.2fmA, Power=%.2fmW, Capacity=%.4fmWh\n",
-                 muxChannel, currentBefore * 1000.0f, currentAfter * 1000.0f, deltaCurrent * 1000.0f, power, capacity_mWh);
+    DEBUG_PRINTF("⚡ Channel %d:\n", muxChannel);
+    DEBUG_PRINTF("   Vbefore=%.3fV | Vafter=%.3fV\n", voltageBefore, voltageAfter);
+    DEBUG_PRINTF("   Ibefore=%.3fmA | Iafter=%.3fmA | ΔI=%.3fmA\n", currentBefore * 1000.0f, currentAfter * 1000.0f, deltaCurrent * 1000.0f);
+    DEBUG_PRINTF("   Power=%.2fmW | Capacity=%.4fmWh\n", power, capacity_mWh);
 
     return capacity_mWh;
 }
+
 
 /**
  * @brief Sends a JSON-formatted capacity report over the Serial interface.
@@ -397,11 +412,17 @@ float ChannelManager::measureCapacity() {
  * battery state in a UI. It assumes Serial is already initialized.
  */
 void ChannelManager::sendCapacityReport() {
-    setMuxActive(*_wire);
-    uint16_t adcRaw = analogRead(voltageAdcPin);
-    float voltage = (adcRaw * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
+    // Select the correct TCA9548A mux channel
+    mux->selectChannel(muxChannel);
+
+    // Measure voltage using BQ2589x ADC
+    int voltage_mV = bq.adc_read_battery_volt();
+    float voltage = voltage_mV / 1000.0f;
+
+    // Estimate capacity in mWh
     float capacity = measureCapacity();
 
+    // Send JSON-formatted report over Serial
     Serial.print(F("{\"channel\":"));
     Serial.print(muxChannel);
     Serial.print(F(",\"voltage\":"));
@@ -412,6 +433,7 @@ void ChannelManager::sendCapacityReport() {
     Serial.print(isCharging() ? F("true") : F("false"));
     Serial.println(F("}"));
 }
+
 /**
  * @brief Starts the charging process for the current battery channel.
  *
@@ -426,11 +448,19 @@ void ChannelManager::sendCapacityReport() {
  * @note Charging parameters (voltage, current) must be configured before calling this function.
  */
 void ChannelManager::startCharging() {
-    setMuxActive(*_wire);
+    // Select the appropriate TCA9548A mux channel
+    mux->selectChannel(muxChannel);
+
+    // Enable charging on the BQ2589x
     bq.enable_charger();
+
+    // Enable CE pin via shift register
     setCE(true);
+
+    // Update LED to reflect charging status
     updateLedFromStatus();
 }
+
 /**
  * @brief Stops the charging process for the current battery channel.
  *
@@ -444,11 +474,16 @@ void ChannelManager::startCharging() {
  * user command, safety conditions, or full charge completion.
  */
 void ChannelManager::stopCharging() {
-    setMuxActive(*_wire);
+    // Select the appropriate TCA9548A mux channel
+    mux->selectChannel(muxChannel);
+    // Disable the charger
     bq.disable_charger();
+    // Disable CE pin via shift register
     setCE(false);
+    // Update RGB LED to reflect charger off status
     updateLedFromStatus();
 }
+
 /**
  * @brief Checks whether the charger is currently active for the selected channel.
  *
@@ -459,9 +494,12 @@ void ChannelManager::stopCharging() {
  * @return `true` if the charger is currently enabled and charging, `false` otherwise.
  */
 bool ChannelManager::isCharging() {
-    setMuxActive(*_wire);
+    // Select the correct channel on the I2C mux
+    mux->selectChannel(muxChannel);
+    // Query the BQ2589x charger for charging state
     return bq.is_charge_enabled();
 }
+
 /**
  * @brief Retrieves the real-time charging and system status for the current channel.
  *
@@ -485,7 +523,8 @@ bool ChannelManager::isCharging() {
  * @return A fully populated `ChargingStatus` struct containing all relevant live data.
  */
 ChargingStatus ChannelManager::getStatus() {
-    setMuxActive(*_wire);
+    // Select the correct TCA9548A mux channel
+    mux->selectChannel(muxChannel);
 
     ChargingStatus status;
     status.channel = muxChannel;

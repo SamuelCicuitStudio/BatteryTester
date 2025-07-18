@@ -13,38 +13,41 @@ void GpioManager::begin() {
     DEBUG_PRINTLN("#                  Starting GPIO Manager                  #");
     DEBUG_PRINTLN("###########################################################");
 
+    // ────────────────────────────────────────────────────────
+    // Configure ADC input pins
+    // ────────────────────────────────────────────────────────
     DEBUG_PRINTLN("→ Configuring ADC input pins:");
     pinMode(VOUTCRR1_PIN, INPUT);
-    DEBUG_PRINTF("   - VOUTCRR1_PIN (GPIO %d) set as INPUT\n", VOUTCRR1_PIN);
     pinMode(VOUTCRR2_PIN, INPUT);
-    DEBUG_PRINTF("   - VOUTCRR2_PIN (GPIO %d) set as INPUT\n", VOUTCRR2_PIN);
     pinMode(VOUTCRR3_PIN, INPUT);
-    DEBUG_PRINTF("   - VOUTCRR3_PIN (GPIO %d) set as INPUT\n", VOUTCRR3_PIN);
     pinMode(VOUTCRR4_PIN, INPUT);
-    DEBUG_PRINTF("   - VOUTCRR4_PIN (GPIO %d) set as INPUT\n", VOUTCRR4_PIN);
+    DEBUG_PRINTF("   - VOUTCRR1–4 configured as INPUT\n");
 
+    // ────────────────────────────────────────────────────────
+    // Configure shift register control pins
+    // ────────────────────────────────────────────────────────
     DEBUG_PRINTLN("→ Configuring shift register control pins:");
-    pinMode(SHIFT_MR_PIN, OUTPUT);
-    DEBUG_PRINTF("   - SHIFT_MR_PIN (GPIO %d) set as OUTPUT\n", SHIFT_MR_PIN);
-    pinMode(SHIFT_SCK_PIN, OUTPUT);
-    DEBUG_PRINTF("   - SHIFT_SCK_PIN (GPIO %d) set as OUTPUT\n", SHIFT_SCK_PIN);
-    pinMode(SHIFT_RCK_PIN, OUTPUT);
-    DEBUG_PRINTF("   - SHIFT_RCK_PIN (GPIO %d) set as OUTPUT\n", SHIFT_RCK_PIN);
     pinMode(SHIFT_SER_PIN, OUTPUT);
-    DEBUG_PRINTF("   - SHIFT_SER_PIN (GPIO %d) set as OUTPUT\n", SHIFT_SER_PIN);
+    pinMode(SHIFT_SCK_PIN, OUTPUT);
+    pinMode(SHIFT_RCK_PIN, OUTPUT);
     pinMode(SHIFT_OE_PIN, OUTPUT);
-    DEBUG_PRINTF("   - SHIFT_OE_PIN (GPIO %d) set as OUTPUT\n", SHIFT_OE_PIN);
+    pinMode(SHIFT_MR_PIN, OUTPUT);
+    DEBUG_PRINTLN("   - SER, SCK, RCK, OE, MR set as OUTPUT");
 
-    // Enable shift register output and disable reset
-    digitalWrite(SHIFT_OE_PIN, LOW);   // Output enabled
-    digitalWrite(SHIFT_MR_PIN, HIGH);  // Not in reset
+    // ────────────────────────────────────────────────────────
+    // Initialize control pins
+    // ────────────────────────────────────────────────────────
+    digitalWrite(SHIFT_OE_PIN, LOW);    // Enable outputs (active low)
+    digitalWrite(SHIFT_MR_PIN, HIGH);   // Disable reset
     DEBUG_PRINTLN("✓ Shift register output ENABLED (OE=LOW)");
-    DEBUG_PRINTLN("✓ Shift register RESET disabled (MR=HIGH)");
+    DEBUG_PRINTLN("✓ Shift register RESET released (MR=HIGH)");
 
-    // Optional: clear and apply zero state
-    resetShiftRegisters();
-    shiftOutState();
-    DEBUG_PRINTLN("✓ Shift register state cleared and applied (all LOW)");
+    // ────────────────────────────────────────────────────────
+    // Clear all shift register outputs
+    // ────────────────────────────────────────────────────────
+    shiftState = 0;  // All outputs LOW
+    applyShiftState();
+    DEBUG_PRINTLN("✓ All shift register outputs set to LOW (LEDs OFF, Load OFF)");
 }
 
 /**

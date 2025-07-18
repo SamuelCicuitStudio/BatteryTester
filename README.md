@@ -5,18 +5,17 @@ This project implements a **4-channel battery charging and monitoring system** u
 Each battery channel supports real-time telemetry, RGB status indication, load-based capacity estimation, and user-triggered commands via a shared button.
 
 ---
-Sure! Here's the updated section with **direct internal Markdown links** (anchors) to jump to each class explanation further down in the README:
 
----
 ## 📘 Class Overview
 
-| Class                                 | Responsibility                                                         |
-| ------------------------------------- | ---------------------------------------------------------------------- |
-| [`DeviceManager`](#-devicemanager)    | Initializes and connects all hardware subsystems                       |
-| [`ChannelManager`](#-channelmanager)  | Manages one battery channel: charger, LED, sensor, capacity, telemetry |
-| [`SwitchManager`](#switchmanager)    | Handles tap/hold button input to trigger channel-specific actions      |
-| [`GpioManager`](#-gpiomanager)        | Manages GPIO pins and shift register for RGB and load control          |
-| [`bq2589x`](#-bq2589x)                | External driver class for interfacing with the BQ2589x charger IC      |
+| Class                                                  | Responsibility                                                          |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| [`DeviceManager`](#-devicemanager)                     | Initializes and connects all hardware subsystems                        |
+| [`ChannelManager`](#-channelmanager)                   | Manages one battery channel: charger, LED, sensor, capacity, telemetry  |
+| [`SwitchManager`](#switchmanager)                      | Handles tap/hold button input to trigger channel-specific actions       |
+| [`GpioManager`](#-gpiomanager)                         | Manages GPIO pins and shift register for RGB and load control           |
+| [`Tca9548aMux`](#-tca9548amux)                         | Controls I2C multiplexer to route communication to each charger         |
+| [`bq2589x`](#-bq2589x)                                 | External driver class for interfacing with the BQ2589x charger IC       |
 | [`config.h`](#️-configh--central-configuration-header) | Central configuration file for pins, charger settings, and debug macros |
 
 ---
@@ -310,6 +309,58 @@ gpioManager.applyShiftState();
 ```
 
 This turns the LED red by enabling only the R pin. Changes are staged until `applyShiftState()` is called.
+
+---
+
+### 🔧 `Tca9548aMux` – I2C Multiplexer Manager
+
+The `Tca9548aMux` class provides high-level control over the [TCA9548A I2C multiplexer](https://www.ti.com/product/TCA9548A), allowing the microcontroller to route I2C communication to one of eight selectable downstream channels. This is especially useful when managing multiple devices that share the same I2C address, such as battery charger ICs on separate channels.
+
+#### ✅ Responsibilities:
+
+* Manages multiplexer reset, initialization, and channel selection
+* Supports runtime switching between up to 8 I2C buses
+* Keeps track of the currently selected channel
+* Safely disables all channels when needed
+
+---
+
+#### 🔩 Features
+
+* **Address Pins Initialization**: Sets the address pins A0–A2 to `LOW`, selecting the default TCA9548A address (`0x70`).
+* **Reset Handling**: Issues a controlled reset on startup and supports manual resets via `reset()`.
+* **Channel Selection**: Dynamically enables any of the 8 mux channels using `selectChannel(uint8_t channel)`.
+* **State Tracking**: Remembers the last selected channel and avoids redundant I2C writes.
+* **Disabling Channels**: Turns off all channels cleanly with `disableAll()`.
+
+---
+
+#### 🧪 Example Usage
+
+```cpp
+TwoWire myWire = Wire;
+Tca9548aMux mux(&myWire, 0x70);
+
+void setup() {
+    mux.begin();        // Sets address pins, resets the mux, prepares I2C
+    mux.selectChannel(0);  // Enables channel 0 for communication
+}
+```
+
+---
+
+#### 🔁 Methods
+
+| Method                      | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| `begin()`                   | Initializes pins A0–A2, performs hardware reset       |
+| `reset()`                   | Manually resets the multiplexer                       |
+| `selectChannel(uint8_t)`    | Activates the specified channel (0–7)                 |
+| `disableAll()`              | Disables all channels (clears control register)       |
+| `isChannelEnabled(uint8_t)` | Returns whether the given channel is currently active |
+| `getCurrentSelection()`     | Returns current control register bitmask              |
+| `getAddress()`              | Returns the I2C address of the mux                    |
+| `writeMux(uint8_t)`         | Internal method to write control byte over I2C        |
 
 ---
 

@@ -15,15 +15,17 @@
 
 class Tca9548aMux {
 public:
-    Tca9548aMux(uint8_t address = TCA9548A_ADDR);  // default I2C address
-    void begin(TwoWire &wirePort = Wire);
+    Tca9548aMux(TwoWire* wire, uint8_t address = TCA9548A_ADDR);  // Accept Wire pointer
+    void begin();
     void reset();
-    bool selectChannel(uint8_t channel);  // 0-7
+    bool selectChannel(uint8_t channel);  // 0–7
     void disableAll();
     bool isChannelEnabled(uint8_t channel);
     uint8_t getCurrentSelection();
+    uint8_t getAddress() const;
 
-private:
+
+
     uint8_t _address;
     TwoWire* _wire;
     uint8_t _lastValue = 0x00;
